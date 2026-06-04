@@ -1,0 +1,376 @@
+{
+  "name": "Big Data BBM Perang Iran",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "Run actor and get dataset",
+        "actorId": {
+          "__rl": true,
+          "value": "CJdippxWmn9uRfooo",
+          "mode": "list",
+          "cachedResultName": "Tweet Scraper|$0.25/1K Tweets | Pay-Per Result | No Rate Limits (kaitoeasyapi/twitter-x-data-tweet-scraper-pay-per-result-cheapest)",
+          "cachedResultUrl": "https://console.apify.com/actors/CJdippxWmn9uRfooo/input"
+        },
+        "customBody": "{\n    \"maxItems\":500 ,\n    \"lang\": \"in\",\n    \"searchTerms\": [\n        \"(\\\"BBM\\\" OR \\\"Pertalite\\\" OR \\\"bensin\\\" OR \\\"subsidi\\\") (\\\"Trump\\\" OR \\\"Netanyahu\\\" OR \\\"Khamenei\\\" OR \\\"Iran\\\" OR \\\"Israel\\\" OR \\\"perang\\\")\"\n    ]\n  \n}",
+        "memory": 8192
+      },
+      "type": "@apify/n8n-nodes-apify.apify",
+      "typeVersion": 1,
+      "position": [
+        144,
+        192
+      ],
+      "id": "dce8adab-faed-47c6-9097-1cfd23098617",
+      "name": "Run an Actor and get dataset",
+      "credentials": {
+        "apifyApi": {
+          "id": "yvCcZrsHrB9NAykX",
+          "name": "Apify account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -80,
+        192
+      ],
+      "id": "23c2302b-783f-4ee1-808b-3b31938584ba",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  const tweet = item.json;\n  let text = (tweet.full_text || tweet.text || \"\").toLowerCase();\n\n  // 1. Kamus Sentimen\n  const keywordMarah = [\"mahal\", \"naik\", \"susah\", \"menyusahkan\", \"tolak\", \"gila\", \"parah\", \"beban\", \"ribet\", \"perang\", \"hancur\"];\n  const keywordSetuju = [\"setuju\", \"dukung\", \"bagus\", \"tepat sasaran\", \"adil\", \"wajar\", \"mantap\"];\n  const keywordPasrah = [\"pasrah\", \"terserah\", \"mau gimana\", \"ikut aja\", \"ya udahlah\", \"nasib\"];\n\n  // 2. Logika Penentuan Kategori & Skor\n  let kategori = \"PASRAH\";\n  let skor = 0.0;\n\n  if (keywordMarah.some(word => text.includes(word))) {\n    kategori = \"MARAH\"; skor = -1.0;\n  } else if (keywordSetuju.some(word => text.includes(word))) {\n    kategori = \"SETUJU\"; skor = 1.0;\n  } else if (keywordPasrah.some(word => text.includes(word))) {\n    kategori = \"PASRAH\"; skor = 0.0;\n  }\n\n  // 3. Logika Ekstraksi Tokoh menggunakan RegEx (\\b memastikan kata berdiri sendiri)\n  let tokoh = [];\n  \n  if (/\\b(trump|amerika|usa|as)\\b/.test(text)) {\n      tokoh.push(\"Trump\");\n  }\n  if (/\\b(netanyahu|israel|zionis)\\b/.test(text)) {\n      tokoh.push(\"Netanyahu\");\n  }\n  if (/\\b(khamenei|iran)\\b/.test(text)) {\n      tokoh.push(\"Khamenei\");\n  }\n\n  // 4. Masukkan semua hasil ke dalam JSON\n  item.json.kategori_hasil_sortir = kategori;\n  item.json.skor_hasil_sortir = skor;\n  item.json.tokoh_terkait = tokoh.length > 0 ? tokoh.join(\", \") : null;\n\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        0
+      ],
+      "id": "0cdb0d0b-d019-4bf8-bd58-8364132b399b",
+      "name": "Categorize and Sort"
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "dedupeValue": "={{ $json.id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        368,
+        192
+      ],
+      "id": "289daa57-30a1-4a15-9a53-18fcf67020d2",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-3.1-flash-lite-preview",
+          "mode": "list",
+          "cachedResultName": "models/gemini-3.1-flash-lite-preview"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Kamu adalah sistem ekstraksi data yang sangat teliti. Baca teks tweet yang diberikan dan kembalikan HANYA format JSON valid tanpa markdown, tanpa penjelasan.\n\nWajib gunakan struktur ini:\n{\n\"kategori_hasil_sortir\": \"MARAH\" | \"SETUJU\" | \"PASRAH\",\n\"tokoh_terkait\": \"Nama Tokoh\" | null\n}\n\nAturan Ekstraksi:\n\nkategori_hasil_sortir:\n\nMARAH: Jika teks mengeluh, menolak, atau marah soal harga BBM.\n\nSETUJU: Jika teks mendukung atau merasa kebijakan sudah tepat.\n\nPASRAH: Jika teks netral, pasrah, atau sekadar memberi info tanpa emosi.\n\ntokoh_terkait:\nJANGAN MENEBAK KONTEKS. Hanya isi dengan nama berikut JIKA kata kuncinya benar-benar TERTULIS/DISEBUT di dalam teks secara harfiah:\n\nIsi \"Trump\" JIKA ada kata: trump, amerika, as, usa.\n\nIsi \"Netanyahu\" JIKA ada kata: netanyahu, israel, zionis.\n\nIsi \"Khamenei\" JIKA ada kata: khamenei, iran.\n\nJika ada lebih dari satu yang dibahas, gabungkan dengan koma (contoh: \"Trump, Netanyahu\").\n\nJika TIDAK ADA satupun kata kunci di atas yang tertulis di teks, WAJIB isi dengan null. Jangan pernah mengarang nama.",
+              "role": "model"
+            },
+            {
+              "content": "={{ $json.text }}"
+            }
+          ]
+        },
+        "simplify": false,
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        816,
+        192
+      ],
+      "id": "35022b3d-d78f-4c74-974c-8096953daf79",
+      "name": "Message a model",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "5vsKhXafw9SOVKHK",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 60
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1392,
+        360
+      ],
+      "id": "44bca097-e072-4055-9110-e07e59c55ebe",
+      "name": "Wait",
+      "webhookId": "e8d799a8-05cb-4527-9ac8-200dc8887c95"
+    },
+    {
+      "parameters": {
+        "tableId": "analisis_sentimen_llm",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "komentar",
+              "fieldValue": "={{ $json.text }}"
+            },
+            {
+              "fieldId": "username",
+              "fieldValue": "={{ $json.author.userName }}"
+            },
+            {
+              "fieldId": "platform",
+              "fieldValue": "Twitter"
+            },
+            {
+              "fieldId": "kategori",
+              "fieldValue": "={{ $json.kategori_hasil_sortir }}"
+            },
+            {
+              "fieldId": "skor_sentimen",
+              "fieldValue": "={{ $json.skor_hasil_sortir }}"
+            },
+            {
+              "fieldId": "tokoh_terkait",
+              "fieldValue": "={{ $json.tokoh_terkait }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        880,
+        384
+      ],
+      "id": "6b7055ff-82b9-4871-82bd-553f39db49ec",
+      "name": "DB LLM",
+      "credentials": {
+        "supabaseApi": {
+          "id": "jO9gO0jKbo0SRKJJ",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "analisis_sentimen_js",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "komentar",
+              "fieldValue": "={{ $json.text }}"
+            },
+            {
+              "fieldId": "username",
+              "fieldValue": "={{ $json.author.userName }}"
+            },
+            {
+              "fieldId": "platform",
+              "fieldValue": "Twitter"
+            },
+            {
+              "fieldId": "kategori",
+              "fieldValue": "={{ $json.kategori_hasil_sortir }}"
+            },
+            {
+              "fieldId": "skor_sentimen",
+              "fieldValue": "={{ $json.skor_hasil_sortir }}"
+            },
+            {
+              "fieldId": "tokoh_terkait",
+              "fieldValue": "={{ $json.tokoh_terkait }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        880,
+        0
+      ],
+      "id": "131dcff1-06a9-49d4-9987-cf436e81cfb3",
+      "name": "DB JS",
+      "credentials": {
+        "supabaseApi": {
+          "id": "jO9gO0jKbo0SRKJJ",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ambil data asli dari node sebelum AI (pastikan nama node-nya 'Loop')\nconst originalData = $('Loop').all(); \n\nreturn $input.all().map((item, index) => {\n  let aiResponse = \"\";\n  \n  // 1. TARIK TEKS MENGGUNAKAN PATH YANG BENAR\n  try {\n      aiResponse = item.json.candidates[0].content.parts[0].text;\n  } catch (e) {\n      aiResponse = \"\";\n  }\n\n  let parsedData = {};\n\n  try {\n    // 2. Bersihkan markdown jika Gemini sesekali iseng nambahin ```json\n    let cleanString = aiResponse.replace(/```json/g, '').replace(/```/g, '').trim();\n    \n    // 3. Parse JSON-nya\n    parsedData = JSON.parse(cleanString);\n\n    // Kalau ternyata jadi array, ambil yang pertama\n    if (Array.isArray(parsedData)) {\n        parsedData = parsedData[0] || {}; \n    }\n  } catch (error) {\n    // Fallback kalau JSON-nya cacat\n    parsedData = { kategori_hasil_sortir: \"PASRAH\", tokoh_terkait: null };\n  }\n\n  // 4. Tarik tweet asli yang sesuai urutannya\n  let originalTweet = {};\n  if (originalData && originalData[index]) {\n      originalTweet = originalData[index].json;\n  }\n\n  // 5. Filter tokoh persis seperti output AI\n  let tokohAI = parsedData.tokoh_terkait;\n  \n  // Bersihkan teks \"null\" bohongan biar jadi NULL beneran di Supabase\n  if (tokohAI === \"null\" || tokohAI === \"\" || tokohAI === \"Umum\" || typeof tokohAI === 'undefined') {\n      tokohAI = null;\n  }\n\n  return {\n    json: {\n      ...originalTweet,\n      kategori_hasil_sortir: parsedData.kategori_hasil_sortir || \"PASRAH\",\n      tokoh_terkait: tokohAI\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        192
+      ],
+      "id": "0da33c2e-037c-44e4-8a7f-20ba35e0e54d",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        592,
+        384
+      ],
+      "id": "8b3c9c20-4382-4407-aa8d-a4b617e52808",
+      "name": "Loop"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run an Actor and get dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run an Actor and get dataset": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Categorize and Sort": {
+      "main": [
+        [
+          {
+            "node": "DB JS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Categorize and Sort",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DB JS": {
+      "main": [
+        []
+      ]
+    },
+    "Loop": {
+      "main": [
+        [
+          {
+            "node": "DB LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "95bdf8b0-6db8-469a-a882-79399b228505",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ffdcce391638dc26843598dd53200703468b7c6fcef3a92085d5842bfce789cd"
+  },
+  "id": "aprjucGlQd7hfRlF",
+  "tags": []
+}
